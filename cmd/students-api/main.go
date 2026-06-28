@@ -1,9 +1,9 @@
 package main
 
 import (
-	"context"
+	"context" //Used while shutting down server gracefully
 	"fmt"
-	"log"
+	"log" //Fatal logging
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ikshantshukla123/students-api/internal/config"
+	"github.com/ikshantshukla123/students-api/internal/http/handlers/student"
 )
 
 
@@ -20,10 +21,10 @@ func main(){
 	cfg := config.MustLoad()
 	//database setup
 	//setup router
-	 router := http.NewServeMux()
-	 router.HandleFunc("GET /home",func(w http.ResponseWriter,r *http.Request){
-		w.Write([]byte("welcome to students api"))
-	 })
+	 router := http.NewServeMux()  //when request comes it decide which function to run 
+
+
+	 router.HandleFunc("POST /api/students", student.New())
 
 	 
 	//setup server
@@ -31,8 +32,8 @@ func main(){
 
 	server := http.Server{
 		Addr: cfg.Addr,
-		Handler: router,
-	}
+		Handler: router, //Whenever request comes give it to router
+	} 
 
 
 done := make(chan os.Signal,1)
