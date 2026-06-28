@@ -2,7 +2,7 @@ package main
 
 import (
 	"context" //Used while shutting down server gracefully
-	"fmt"
+
 	"log" //Fatal logging
 	"log/slog"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/ikshantshukla123/students-api/internal/config"
 	"github.com/ikshantshukla123/students-api/internal/http/handlers/student"
+	"github.com/ikshantshukla123/students-api/internal/storage/sqlite"
 )
 
 
@@ -20,11 +21,20 @@ func main(){
 	//load config
 	cfg := config.MustLoad()
 	//database setup
+
+
+	storage,err := sqlite.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+ 
+	slog.Info("storage initialzed", slog.String("env",cfg.Env), slog.String("version","1.0.0"))
+
 	//setup router
 	 router := http.NewServeMux()  //when request comes it decide which function to run 
 
 
-	 router.HandleFunc("POST /api/students", student.New())
+	 router.HandleFunc("POST /api/students", student.New(storage))
 
 	 
 	//setup server
@@ -37,13 +47,18 @@ func main(){
 
 
 done := make(chan os.Signal,1)
-signal.Notify(done,os.Interrupt,syscall.SIGINT)
+signal.Notify(
+    done,
+    os.Interrupt,
+    syscall.SIGINT,
+    syscall.SIGTERM,
+)
 
 go func (){
 	slog.Info("server started",slog.String("address",cfg.Addr))
-	fmt.Printf("Server started %v", cfg.Addr)
+	
 	err:= server.ListenAndServe()
-	if err != nil{
+	if err != nil && err != http.ErrServerClosed {
 	log.Fatal("Failed to start server")
 	}
 }()
@@ -56,7 +71,7 @@ ctx,cancel := context.WithTimeout(context.Background(),5 * time.Second)
 
 defer cancel()
 
-err := server.Shutdown(ctx)
+err = server.Shutdown(ctx)
 if err != nil{
 	slog.Error("Failed to shutdown server",slog.String("error",err.Error()))
 }
