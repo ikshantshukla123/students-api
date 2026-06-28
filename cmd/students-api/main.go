@@ -1,9 +1,14 @@
+// Command students-api is the entry point of the application.
+//
+// This file is the "composition root": the ONE place where all the pieces are
+// constructed and wired together (config -> storage -> router -> handlers ->
+// server). Keeping the wiring here is what lets the other packages stay
+// decoupled and individually testable.
 package main
 
 import (
-	"context" //Used while shutting down server gracefully
-
-	"log" //Fatal logging
+	"context" // carries deadlines/cancellation; used for graceful shutdown
+	"log"     // Fatal logging (logs then os.Exit)
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,73 +21,75 @@ import (
 	"github.com/ikshantshukla123/students-api/internal/storage/sqlite"
 )
 
-
-func main(){
-	//load config
+func main() {
+	// 1) Load configuration (or exit). See internal/config.
 	cfg := config.MustLoad()
-	//database setup
 
-
-	storage,err := sqlite.New(cfg)
+	// 2) Build the storage layer. We get back a concrete *sqlite.Sqlite, but
+	// everything downstream will use it through the storage.Storage interface.
+	storage, err := sqlite.New(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
- 
-	slog.Info("storage initialzed", slog.String("env",cfg.Env), slog.String("version","1.0.0"))
 
-	//setup router
-	 router := http.NewServeMux()  //when request comes it decide which function to run 
+	slog.Info("storage initialized", slog.String("env", cfg.Env), slog.String("version", "1.0.0"))
 
+	// 3) Set up the router (request multiplexer). Since Go 1.22 the pattern can
+	// include the HTTP METHOD, so only POST requests to this path match.
+	// student.New(storage) runs now and returns the handler closure with the
+	// storage dependency baked in.
+	router := http.NewServeMux()
+	router.HandleFunc("POST /api/students", student.New(storage))
 
-	 router.HandleFunc("POST /api/students", student.New(storage))
-
-	 
-	//setup server
-
-
+	// 4) Build the server explicitly (rather than http.ListenAndServe) so we can
+	// call Shutdown() later for a graceful stop. Production tip: also set
+	// ReadTimeout/WriteTimeout/IdleTimeout here to defend against slow clients.
 	server := http.Server{
-		Addr: cfg.Addr,
-		Handler: router, //Whenever request comes give it to router
-	} 
-
-
-done := make(chan os.Signal,1)
-signal.Notify(
-    done,
-    os.Interrupt,
-    syscall.SIGINT,
-    syscall.SIGTERM,
-)
-
-go func (){
-	slog.Info("server started",slog.String("address",cfg.Addr))
-	
-	err:= server.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
-	log.Fatal("Failed to start server")
+		Addr:    cfg.Addr,
+		Handler: router,
 	}
-}()
-<-done
 
-slog.Info("Shutting down the server")
+	// 5) Prepare for graceful shutdown.
+	// A buffered channel (capacity 1) to receive OS signals. The buffer matters:
+	// signal.Notify sends non-blockingly, so the buffer ensures a signal that
+	// arrives before we're parked on the receive is not dropped.
+	done := make(chan os.Signal, 1)
+	// Route these OS signals to our channel instead of letting them kill us:
+	//   os.Interrupt / SIGINT -> Ctrl+C; SIGTERM -> docker/k8s "please stop".
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
+	// 6) Run the server in a goroutine, because ListenAndServe BLOCKS forever.
+	// If we called it directly, the shutdown code below would never be reached.
+	go func() {
+		slog.Info("server started", slog.String("address", cfg.Addr))
 
-ctx,cancel := context.WithTimeout(context.Background(),5 * time.Second)
+		err := server.ListenAndServe()
+		// When Shutdown() is called, ListenAndServe returns ErrServerClosed —
+		// that's the NORMAL "asked to stop" signal, not a real error, so we
+		// ignore it. Any other error is a genuine startup failure.
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("failed to start server: %s", err.Error())
+		}
+	}()
 
-defer cancel()
+	// 7) Block here until an OS signal arrives. main idles efficiently while the
+	// server keeps serving in its goroutine.
+	<-done
 
-err = server.Shutdown(ctx)
-if err != nil{
-	slog.Error("Failed to shutdown server",slog.String("error",err.Error()))
+	slog.Info("shutting down the server")
+
+	// 8) Graceful shutdown: stop accepting new connections but give in-flight
+	// requests up to 5 seconds to finish. context.WithTimeout enforces that
+	// deadline so shutdown can't hang forever.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// cancel MUST always be called to release the context's resources; defer
+	// guarantees it runs no matter how main returns.
+	defer cancel()
+
+	err = server.Shutdown(ctx)
+	if err != nil {
+		slog.Error("failed to shutdown server", slog.String("error", err.Error()))
+	}
+
+	slog.Info("server shutdown successfully")
 }
-slog.Info("Server shutdown successfully")
-}
-
- 
-//use logger in place of println/print : log/slog
-// Because logs are not just for printing messages. They help you:
-
-// Debug errors
-// Monitor servers
-// Know what users are doing
-// Find why your API crashed
