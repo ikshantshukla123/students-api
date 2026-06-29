@@ -52,18 +52,20 @@ func MustLoad() *Config {
 	var configPath string
 
 	// 1) Prefer the CONFIG_PATH environment variable. Getenv returns "" if unset.
+	// (Env vars are conventionally UPPERCASE.)
 	configPath = os.Getenv("CONFIG_PATH")
 
 	if configPath == "" {
 		// 2) Otherwise fall back to a command-line flag: -config <path>.
-		// flag.String returns a *string (pointer); the value isn't populated
-		// until flag.Parse() runs, which is why we dereference with *flags after.
-		flags := flag.String("config", "", "path to configuration file")
+		// The flag DEFAULTS to config/local.yaml, so plain `go run ...` works
+		// without passing -config. flag.String returns a *string (pointer); the
+		// value isn't populated until flag.Parse() runs, hence *flags after.
+		flags := flag.String("config","config/local.yaml", "path to configuration file")
 		flag.Parse()
 
 		configPath = *flags
 
-		// 3) Neither source provided a path -> we can't continue.
+		// 3) Still empty (only possible if someone passes -config "") -> we can't continue.
 		if configPath == "" {
 			log.Fatal("Config path is not set")
 		}

@@ -30,7 +30,6 @@ const (
 	StatusOK    = "OK"
 	StatusError = "Error"
 )
-
 // WriteJson is the single place that turns a Go value into a JSON HTTP response.
 //
 // data is `interface{}` (a.k.a. `any`) — the empty interface, which EVERY type
