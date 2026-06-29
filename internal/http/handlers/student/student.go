@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/ikshantshukla123/students-api/internal/storage"
@@ -95,3 +96,54 @@ func New(storage storage.Storage) http.HandlerFunc {
 		response.WriteJson(w, http.StatusCreated, map[string]int64{"id": id})
 	}
 }
+
+
+
+// GetById handles GET /api/students/{id} — fetch a single student.
+func GetById(storage storage.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// r.PathValue("id") reads the {id} wildcard from the route pattern
+		// (a Go 1.22+ feature). It's ALWAYS a string, so we must convert it.
+		idStr := r.PathValue("id")
+		slog.Info("getting a student", slog.String("id", idStr))
+
+		// Convert the path string to int64. base 10, 64-bit. If the client sent
+		// something non-numeric (e.g. /students/abc), this errors -> 400.
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			response.WriteJson(w, http.StatusBadRequest, response.GeneralError(err))
+			return
+		}
+
+		student, err := storage.GetStudentById(id)
+		if err != nil {
+			// Not found is the client asking for something that doesn't exist:
+			// 404, not 500. (We keep it simple here; a more precise version would
+			// distinguish "not found" from a real DB failure.)
+			response.WriteJson(w, http.StatusNotFound, response.GeneralError(err))
+			return
+		}
+
+		response.WriteJson(w, http.StatusOK, student)
+	}
+}
+
+// GetList handles GET /api/students — fetch all students.
+func GetList(storage storage.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("getting all students")
+
+		students, err := storage.GetStudents()
+		if err != nil {
+			// A failure here is the server's fault (DB error) -> 500.
+			response.WriteJson(w, http.StatusInternalServerError, response.GeneralError(err))
+			return
+		}
+
+		response.WriteJson(w, http.StatusOK, students)
+	}
+}
+
+
+
+

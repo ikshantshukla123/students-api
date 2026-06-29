@@ -38,8 +38,12 @@ func main() {
 	// include the HTTP METHOD, so only POST requests to this path match.
 	// student.New(storage) runs now and returns the handler closure with the
 	// storage dependency baked in.
-	router := http.NewServeMux()
+	router := http.NewServeMux() //A ServeMux is a router (also called a "request multiplexer" — that's the "Mux"). Its one job: look at an incoming request's method + URL path, and decide which handler function to run.
+ 
 	router.HandleFunc("POST /api/students", student.New(storage))
+	// {id} is a path-parameter wildcard, read in the handler via r.PathValue("id").
+	router.HandleFunc("GET /api/students/{id}", student.GetById(storage))
+	router.HandleFunc("GET /api/students", student.GetList(storage))
 
 	// 4) Build the server explicitly (rather than http.ListenAndServe) so we can
 	// call Shutdown() later for a graceful stop. Production tip: also set
