@@ -8,9 +8,12 @@ package sqlite
 
 import (
 	"database/sql" // standard-library generic SQL API (the "interface")
+	"errors"
+	"fmt"
 
 	"github.com/ikshantshukla123/students-api/internal/config"
 	"github.com/ikshantshukla123/students-api/internal/storage"
+	"github.com/ikshantshukla123/students-api/internal/types"
 
 	// Blank import: we never reference this package by name, we import it ONLY
 	// for its side effect. Its init() calls sql.Register("sqlite3", ...), which
@@ -110,6 +113,75 @@ func (s *Sqlite) CreateStudent(name string, email string, age int) (int64, error
 	}
 
 	return id, nil
+}
+
+// GetStudentById fetches exactly one student by id.
+func (s *Sqlite) GetStudentById(id int64) (types.Student, error) {
+	// QueryRow is used when we expect AT MOST one row (vs Query for many).
+	// It still uses a ? placeholder + separate value for SQL-injection safety.
+	// LIMIT 1 is a small safety net in case of unexpected duplicates.
+	stmt, err := s.Db.Prepare("SELECT id, name, email, age FROM students WHERE id = ? LIMIT 1")
+	if err != nil {
+		return types.Student{}, err
+	}
+	defer stmt.Close()
+
+	var student types.Student
+
+	// Scan copies the columns of the result row INTO our variables, in order.
+	// We pass POINTERS (&student.Id, ...) so Scan can write into the fields.
+	// The order here must match the SELECT column order above.
+	err = stmt.QueryRow(id).Scan(&student.Id, &student.Name, &student.Email, &student.Age)
+	if err != nil {
+		// sql.ErrNoRows is the SPECIAL error meaning "the query found no row".
+		// It's not a real failure — it's a valid "not found", which the handler
+		// turns into a 404. We wrap it with the id for a clearer message; %w
+		// preserves the original error so errors.Is can still detect it.
+		if errors.Is(err, sql.ErrNoRows) {
+			return types.Student{}, fmt.Errorf("no student found with id %d", id)
+		}
+		return types.Student{}, err
+	}
+
+	return student, nil
+}
+
+// GetStudents returns all students.
+func (s *Sqlite) GetStudents() ([]types.Student, error) {
+	stmt, err := s.Db.Prepare("SELECT id, name, email, age FROM students")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	// Query (not QueryRow) returns MANY rows as a *sql.Rows cursor.
+	rows, err := stmt.Query()
+	if err != nil {
+		return nil, err
+	}
+	// rows holds a DB connection open until closed — ALWAYS defer rows.Close()
+	// or you leak connections from the pool.
+	defer rows.Close()
+
+	var students []types.Student
+
+	// rows.Next() advances the cursor one row at a time, returning false when
+	// done (or on error). Scan reads the current row into a struct.
+	for rows.Next() {
+		var student types.Student
+		if err := rows.Scan(&student.Id, &student.Name, &student.Email, &student.Age); err != nil {
+			return nil, err
+		}
+		students = append(students, student)
+	}
+
+	// IMPORTANT: the loop can stop because of an error mid-iteration, not just
+	// because we ran out of rows. rows.Err() surfaces any such error.
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return students, nil
 }
 
 

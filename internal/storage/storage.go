@@ -7,6 +7,8 @@
 // touching any handler code.
 package storage
 
+import "github.com/ikshantshukla123/students-api/internal/types"
+
 // Storage is an interface: a contract made of method signatures with no
 // implementation. ANY type that has all these methods automatically satisfies
 // Storage — in Go you never write "implements Storage". This is called
@@ -23,4 +25,11 @@ type Storage interface {
 	// CreateStudent inserts a new student and returns the database-generated id,
 	// or an error if the insert failed.
 	CreateStudent(name string, email string, age int) (int64, error)
+
+	// GetStudentById fetches one student by its id. Returns an error if no row
+	// matches (so the handler can answer 404).
+	GetStudentById(id int64) (types.Student, error)
+
+	// GetStudents returns all students (a slice, possibly empty).
+	GetStudents() ([]types.Student, error)
 }
